@@ -6,11 +6,13 @@
 #include <vector>
 #include <iostream>
 #include <algorithm>
-#include <filesystem>
+#include <filesystem> // Para obtener rutas de carpetas actuales
 
 using namespace cv;
+
 namespace fs = std::filesystem;
 
+// Thread-local storage for per-request data
 thread_local struct RequestData {
     Mat processedImage;
     std::string plateNumber;
@@ -19,6 +21,7 @@ thread_local struct RequestData {
     bool processed;
 } g_requestData;
 
+// Helper function to reset data
 void resetRequestData() {
     g_requestData.processed = false;
     g_requestData.plateNumber = "";
@@ -26,11 +29,16 @@ void resetRequestData() {
     g_requestData.confidence = 0.0f;
 }
 
+// Helper to save the processed image
 void saveProcessedImage(const Mat& image) {
     try {
+        // Obtener el directorio actual de ejecución
         std::string currentPath = fs::current_path().string();
         std::string outputPath = currentPath + "/processed_image.png";
+
+        // Guardar la imagen procesada
         bool success = imwrite(outputPath, image);
+
         if (success) {
             printf("✅ Processed image saved at: %s\n", outputPath.c_str());
         } else {
@@ -41,7 +49,9 @@ void saveProcessedImage(const Mat& image) {
     }
 }
 
+// Process the image
 bool processImage(JNIEnv *env, jbyteArray input) {
+    // Reset the request-specific state
     resetRequestData();
 
     printf("🚀 Starting image processing...\n");
@@ -59,6 +69,7 @@ bool processImage(JNIEnv *env, jbyteArray input) {
         return false;
     }
 
+    // Load input as byte array
     jbyte *fileData = env->GetByteArrayElements(input, nullptr);
     if (!fileData) {
         printf("❌ Failed to retrieve byte array data.\n");
@@ -68,6 +79,7 @@ bool processImage(JNIEnv *env, jbyteArray input) {
     std::vector<uchar> buffer((uchar*)fileData, (uchar*)fileData + dataLength);
     env->ReleaseByteArrayElements(input, fileData, 0);
 
+    // Decode the image
     Mat image = imdecode(buffer, IMREAD_COLOR);
     if (image.empty()) {
         printf("❌ Failed to decode the image.\n");
@@ -76,42 +88,30 @@ bool processImage(JNIEnv *env, jbyteArray input) {
 
     printf("✅ Image decoded successfully: %dx%d\n", image.cols, image.rows);
 
-    // --- Preprocesamiento Mejorado ---
     Mat gray;
     cvtColor(image, gray, COLOR_BGR2GRAY);
+    GaussianBlur(gray, gray, Size(5, 5), 0);
+    threshold(gray, gray, 0, 255, THRESH_BINARY + THRESH_OTSU);
 
-    // Sin inversión, para que el fondo sea blanco y las letras negras
-    Mat bin;
-    adaptiveThreshold(gray, bin, 255, ADAPTIVE_THRESH_GAUSSIAN_C, THRESH_BINARY, 31, 15);
+    g_requestData.processedImage = gray.clone();
 
-    // Prueba diferentes tamaños, aquí uno mayor para mejor OCR
-    if (bin.rows < 30 || bin.cols < 100) {
-        resize(bin, bin, Size(400, 100));
-    }
-
-    g_requestData.processedImage = bin.clone();
+    // Save the processed image
     saveProcessedImage(g_requestData.processedImage);
 
+    // Optional OCR with Tesseract
     try {
         tesseract::TessBaseAPI api;
         if (api.Init(NULL, "eng") == 0) {
-            // Puedes probar PSM_SINGLE_LINE, PSM_AUTO o PSM_SINGLE_BLOCK
-            api.SetPageSegMode(tesseract::PSM_SINGLE_LINE);
-            api.SetVariable("tessedit_char_whitelist", "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-");
-            api.SetImage(bin.data, bin.cols, bin.rows, 1, bin.step);
+            api.SetImage(gray.data, gray.cols, gray.rows, 1, gray.step);
 
             char* ocrResult = api.GetUTF8Text();
             if (ocrResult) {
-                printf("RAW OCR result: '%s'\n", ocrResult); // Para depuración
                 g_requestData.plateNumber = std::string(ocrResult);
                 g_requestData.plateNumber.erase(
-                    std::remove_if(g_requestData.plateNumber.begin(), g_requestData.plateNumber.end(), [](unsigned char c) {
-                        return !isalnum(c) && c != '-';
-                    }),
+                    std::remove_if(g_requestData.plateNumber.begin(), g_requestData.plateNumber.end(), ::isspace),
                     g_requestData.plateNumber.end()
                 );
-                g_requestData.confidence = static_cast<float>(api.MeanTextConf()) / 100.0f;
-                printf("✅ OCR detected plate: %s (confidence=%.2f)\n", g_requestData.plateNumber.c_str(), g_requestData.confidence);
+                printf("✅ OCR detected plate: %s\n", g_requestData.plateNumber.c_str());
                 delete[] ocrResult;
             } else {
                 printf("❌ No text detected by OCR.\n");
@@ -129,8 +129,11 @@ bool processImage(JNIEnv *env, jbyteArray input) {
     return true;
 }
 
+// Native methods
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_lvm_back_truck_manager_controller_PlateInspectionController_extractPlateNumber(JNIEnv *env, jobject, jbyteArray input) {
+Java_com_lvm_back_truck_manager_controller_PlateInspectionController_extractPlateNumber(
+    JNIEnv *env, jobject, jbyteArray input) {
+
     printf("🔠 Extract plate number invoked.\n");
     if (!processImage(env, input)) {
         return env->NewStringUTF("PROCESSING_ERROR");
@@ -139,7 +142,9 @@ Java_com_lvm_back_truck_manager_controller_PlateInspectionController_extractPlat
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_lvm_back_truck_manager_controller_PlateInspectionController_isPlateClean(JNIEnv *env, jobject, jbyteArray input) {
+Java_com_lvm_back_truck_manager_controller_PlateInspectionController_isPlateClean(
+    JNIEnv *env, jobject, jbyteArray input) {
+
     printf("🧹 Detect plate cleanliness.\n");
     if (!g_requestData.processed && !processImage(env, input)) {
         return JNI_FALSE;
@@ -148,7 +153,9 @@ Java_com_lvm_back_truck_manager_controller_PlateInspectionController_isPlateClea
 }
 
 extern "C" JNIEXPORT jfloat JNICALL
-Java_com_lvm_back_truck_manager_controller_PlateInspectionController_getConfidence(JNIEnv *env, jobject, jbyteArray input) {
+Java_com_lvm_back_truck_manager_controller_PlateInspectionController_getConfidence(
+    JNIEnv *env, jobject, jbyteArray input) {
+
     printf("📊 Get OCR confidence.\n");
     if (!g_requestData.processed && !processImage(env, input)) {
         return 0.0f;
