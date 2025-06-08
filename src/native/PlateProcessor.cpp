@@ -76,22 +76,17 @@ bool processImage(JNIEnv *env, jbyteArray input) {
 
     printf("✅ Image decoded successfully: %dx%d\n", image.cols, image.rows);
 
-    // PREPROCESADO MEJORADO PARA OCR DE MATRÍCULA
+    // --- Preprocesamiento Mejorado ---
     Mat gray;
     cvtColor(image, gray, COLOR_BGR2GRAY);
 
-    // Puedes quitar/commentar GaussianBlur si la imagen no tiene demasiado ruido
-    // GaussianBlur(gray, gray, Size(3, 3), 0);
-
-    // Umbral adaptativo para mejorar contraste y nitidez de caracteres
+    // Sin inversión, para que el fondo sea blanco y las letras negras
     Mat bin;
     adaptiveThreshold(gray, bin, 255, ADAPTIVE_THRESH_GAUSSIAN_C, THRESH_BINARY, 31, 15);
 
-    // Invierte para dejar letras en negro sobre fondo blanco si es necesario (ajusta según tu país)
-    bitwise_not(bin, bin);
-
+    // Prueba diferentes tamaños, aquí uno mayor para mejor OCR
     if (bin.rows < 30 || bin.cols < 100) {
-        resize(bin, bin, Size(300, 60));
+        resize(bin, bin, Size(400, 100));
     }
 
     g_requestData.processedImage = bin.clone();
@@ -100,21 +95,23 @@ bool processImage(JNIEnv *env, jbyteArray input) {
     try {
         tesseract::TessBaseAPI api;
         if (api.Init(NULL, "eng") == 0) {
+            // Puedes probar PSM_SINGLE_LINE, PSM_AUTO o PSM_SINGLE_BLOCK
             api.SetPageSegMode(tesseract::PSM_SINGLE_LINE);
             api.SetVariable("tessedit_char_whitelist", "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-");
             api.SetImage(bin.data, bin.cols, bin.rows, 1, bin.step);
 
             char* ocrResult = api.GetUTF8Text();
             if (ocrResult) {
+                printf("RAW OCR result: '%s'\n", ocrResult); // Para depuración
                 g_requestData.plateNumber = std::string(ocrResult);
                 g_requestData.plateNumber.erase(
                     std::remove_if(g_requestData.plateNumber.begin(), g_requestData.plateNumber.end(), [](unsigned char c) {
-                        return !isalnum(c) && c != '-'; // Eliminar caracteres no válidos
+                        return !isalnum(c) && c != '-';
                     }),
                     g_requestData.plateNumber.end()
                 );
                 g_requestData.confidence = static_cast<float>(api.MeanTextConf()) / 100.0f;
-                printf("✅ OCR detected plate: %s\n", g_requestData.plateNumber.c_str());
+                printf("✅ OCR detected plate: %s (confidence=%.2f)\n", g_requestData.plateNumber.c_str(), g_requestData.confidence);
                 delete[] ocrResult;
             } else {
                 printf("❌ No text detected by OCR.\n");
