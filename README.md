@@ -27,3 +27,9 @@ podman cp plate-inspection:/tmp/plateGray.png C:\Users\guesa\plateGray.png
 podman stop plate-inspection && podman rm plate-inspection
 podman build -t plate-inspection:latest -f Containerfile .
 podman run -d -p 8080:8080 --name plate-inspection plate-inspection:latest
+
+
+IMAGEN PROCESADA 
+
+podman ps
+podman cp plate-inspection:/app/processed_image.png ./processed_image.png
