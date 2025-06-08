@@ -1,0 +1,6 @@
+applicationType: default
+defaultPackage: com.lvm.back.truck.manager
+testFramework: junit
+sourceLanguage: java
+buildTool: gradle
+features: [app-name, github-workflow-ci, gradle, http-client-test, jackson-databind, java, java-application, junit, logback, micronaut-aop, micronaut-aot, micronaut-build, micronaut-http-validation, netty-server, readme, shade, static-resources, validation, yaml, yaml-build]

@@ -1,0 +1,60 @@
+plugins {
+    id("io.micronaut.application") version "4.5.3"
+    id("com.gradleup.shadow") version "8.3.6"
+    id("io.micronaut.aot") version "4.5.3"
+}
+
+version = "0.1"
+group = "com.lvm.back.truck.manager"
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    annotationProcessor("io.micronaut:micronaut-http-validation")
+    annotationProcessor("io.micronaut.validation:micronaut-validation-processor")
+    implementation("io.micronaut:micronaut-aop")
+    implementation("io.micronaut:micronaut-jackson-databind")
+    implementation("io.micronaut.validation:micronaut-validation")
+    implementation("jakarta.validation:jakarta.validation-api")
+    compileOnly("io.micronaut:micronaut-http-client")
+    runtimeOnly("ch.qos.logback:logback-classic")
+    runtimeOnly("org.yaml:snakeyaml")
+    testImplementation("io.micronaut:micronaut-http-client")
+}
+
+application {
+    mainClass = "com.lvm.back.truck.manager.Application"
+}
+
+java {
+    sourceCompatibility = JavaVersion.toVersion("21")
+    targetCompatibility = JavaVersion.toVersion("21")
+}
+
+graalvmNative.toolchainDetection = false
+
+micronaut {
+    version("4.8.2")  // Agregar esta línea
+    runtime("netty")
+    testRuntime("junit5")
+    processing {
+        incremental(true)
+        annotations("com.lvm.back.truck.manager.*")
+    }
+    aot {
+        optimizeServiceLoading = false
+        convertYamlToJava = false
+        precomputeOperations = true
+        cacheEnvironment = true
+        optimizeClassLoading = true
+        deduceEnvironment = true
+        optimizeNetty = true
+        replaceLogbackXml = true
+    }
+}
+
+tasks.named("dockerfileNative") {
+    jdkVersion = "21"
+}

@@ -1,0 +1,51 @@
+FROM ubuntu:22.04
+
+# Install dependencies
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y \
+    openjdk-21-jdk \
+    gradle \
+    g++ \
+    libopencv-dev \
+    libopencv-dnn-dev \
+    linux-libc-dev \
+    libleptonica-dev \
+    libtesseract-dev \
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    pkg-config \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Set JAVA_HOME
+ENV JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+ENV PATH=$JAVA_HOME/bin:$PATH
+
+# Copy project files
+WORKDIR /app
+COPY gradle ./gradle
+COPY gradlew .
+COPY build.gradle settings.gradle gradle.properties ./
+
+# Ensure gradlew is executable
+RUN chmod +x gradlew
+
+# Download dependencies FIRST (better caching)
+RUN ./gradlew dependencies --no-daemon
+
+# Now copy source code
+COPY src ./src
+COPY src/native/mobilenetv2.onnx .
+
+# Build C++ native library
+RUN g++ -shared -o /app/libPlateProcessor.so -fPIC src/native/PlateProcessor.cpp \
+    -I${JAVA_HOME}/include -I${JAVA_HOME}/include/linux \
+    `pkg-config --cflags --libs opencv4 tesseract`
+
+# Build Micronaut app (no daemon for faster container builds)
+RUN ./gradlew build --no-daemon
+
+# Set library path
+ENV LD_LIBRARY_PATH=/app:/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
+
+# Run the app
+CMD ["java", "-Djava.library.path=/app", "-jar", "build/libs/lvm-back-truck-manager-0.1-all.jar"]

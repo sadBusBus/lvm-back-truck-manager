@@ -1,0 +1,14 @@
+micronaut:
+  application:
+    name: lvm-back-truck-manager
+  server:
+    port: 8080
+    aot:
+      optimizeServiceLoading: false
+      convertYamlToJava: true
+      precomputeOperations: true
+      cacheEnvironment: true
+      optimizeClassLoading: true
+      deduceEnvironment: true
+      optimizeNetty: true
+      replaceLogbackXml: true
